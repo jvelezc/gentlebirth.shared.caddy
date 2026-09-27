@@ -1,0 +1,102 @@
+name: Validate and deploy shared Caddy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CADDY_IMAGE: docker.io/library/caddy:2.11.4
+
+jobs:
+  validate:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: caddy validate (same version as the host)
+        run: podman run --rm -v "$PWD:/etc/caddy:ro" "$CADDY_IMAGE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: caddy fmt check
+        run: |
+          for f in Caddyfile sites/*.caddy; do
+            podman run --rm -v "$PWD:/w:ro" "$CADDY_IMAGE" caddy fmt "/w/$f" | diff -u "$f" - || { echo "::error file=$f::Run 'caddy fmt --overwrite $f'"; exit 1; }
+          done
+
+  deploy:
+    name: Deploy to Contabo
+    needs: validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    concurrency:
+      group: shared-caddy-production
+      cancel-in-progress: false
+    env:
+      CONTABO_HOST: ${{ vars.CONTABO_HOST }}
+      CONTABO_SSH_USER: ${{ vars.CONTABO_SSH_USER }}
+      CONTABO_HOST_KEY_FINGERPRINT: ${{ vars.CONTABO_HOST_KEY_FINGERPRINT }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install SSH key and pinned host key
+        env:
+          CONTABO_SSH_PRIVATE_KEY: ${{ secrets.CONTABO_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          for v in CONTABO_HOST CONTABO_SSH_USER CONTABO_HOST_KEY_FINGERPRINT CONTABO_SSH_PRIVATE_KEY; do
+            test -n "${!v}" || { echo "::error::$v is not configured"; exit 1; }
+          done
+          install -d -m 0700 ~/.ssh
+          printf '%s\n' "$CONTABO_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/contabo && chmod 0600 ~/.ssh/contabo
+          candidate="$RUNNER_TEMP/known_host"
+          ssh-keyscan -t ed25519 "$CONTABO_HOST" > "$candidate" 2>/dev/null
+          actual="$(ssh-keygen -lf "$candidate" -E sha256 | awk '{print $2}')"
+          test "$actual" = "$CONTABO_HOST_KEY_FINGERPRINT" || { echo '::error::Host key fingerprint mismatch'; exit 1; }
+          mv "$candidate" ~/.ssh/known_hosts && chmod 0600 ~/.ssh/known_hosts
+          printf 'Host contabo\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/contabo\n  BatchMode yes\n  IdentitiesOnly yes\n' \
+            "$CONTABO_HOST" "$CONTABO_SSH_USER" > ~/.ssh/config
+
+      - name: Probe public routes before the change
+        run: bash scripts/check-routes.sh checks.txt | tee "$RUNNER_TEMP/before.txt"
+
+      - name: Upload and apply
+        run: |
+          set -euo pipefail
+          stage="/opt/shared-caddy/releases/${GITHUB_SHA}"
+          ssh contabo "rm -rf '$stage' && install -d -m 0755 '$stage/sites'"
+          scp -q Caddyfile scripts/apply-caddy.sh "contabo:$stage/"
+          scp -q sites/*.caddy "contabo:$stage/sites/"
+          ssh contabo "bash '$stage/apply-caddy.sh' '$stage'"
+          ssh contabo 'ls -1dt /opt/shared-caddy/releases/*/ | tail -n +6 | xargs -r rm -rf'
+
+      - name: Probe public routes after the change (no regressions allowed)
+        run: |
+          set -euo pipefail
+          sleep 3
+          bash scripts/check-routes.sh checks.txt | tee "$RUNNER_TEMP/after.txt"
+          regressions="$(join <(awk '$4=="PASS"{print $2}' "$RUNNER_TEMP/before.txt" | sort) \
+                               <(awk '$4=="FAIL"{print $2" "$3}' "$RUNNER_TEMP/after.txt" | sort) || true)"
+          if [[ -n "$regressions" ]]; then
+            echo "::error::Routes that passed before now fail: $regressions"
+            echo 'Rolling back to the previous configuration.'
+            ssh contabo 'set -e; rm -rf /etc/caddy && cp -a /etc/caddy.previous /etc/caddy && caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && systemctl reload caddy'
+            exit 1
+          fi
+          {
+            echo '### Shared Caddy deployed'
+            echo "- Revision: \`${GITHUB_SHA}\`"
+            echo
+            echo '| Method | URL | Status | Result |'
+            echo '|---|---|---|---|'
+            awk '{printf "| %s | %s | %s | %s |\n", $1, $2, $3, $4}' "$RUNNER_TEMP/after.txt"
+          } >> "$GITHUB_STEP_SUMMARY"

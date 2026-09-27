@@ -1,0 +1,4 @@
+# Installed as /etc/caddy/Caddyfile on the shared Contabo host (89.117.17.81).
+# This repository is the only owner of the host's Caddy configuration.
+# Add one file per public hostname under sites/.
+import /etc/caddy/sites/*.caddy

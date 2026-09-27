@@ -1,0 +1,36 @@
+api.mancebo.ai {
+	encode zstd gzip
+
+	# Mancebo Course Engineer MCP (mancebo repo: mancebo-mcp-course-engineer)
+	handle_path /course-mcp/* {
+		reverse_proxy 127.0.0.1:8082
+	}
+
+	# Mancebo search MCP (mancebo repo: deploy-mancebo-search.sh)
+	handle_path /search-mcp/* {
+		reverse_proxy 127.0.0.1:8084
+	}
+
+	# GentleBirth Perinatal MCP (gentlebirth.peritanal.advisor repo: gentlebirth-mcp)
+	# Public endpoint: https://api.mancebo.ai/gentlebirth-mcp/mcp
+	handle_path /gentlebirth-mcp/* {
+		reverse_proxy 127.0.0.1:8085 {
+			# Advisor and audio tools can take minutes.
+			transport http {
+				read_timeout 10m
+				write_timeout 10m
+			}
+		}
+	}
+
+	# Mancebo Supabase MCP (mancebo repo: mancebo-mcp-supabase)
+	@mcp path /mcp /mcp/*
+	handle @mcp {
+		reverse_proxy 127.0.0.1:8081
+	}
+
+	# Mancebo control plane (mancebo repo: mancebo-control-plane)
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+}

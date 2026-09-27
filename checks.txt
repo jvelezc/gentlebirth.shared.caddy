@@ -1,0 +1,9 @@
+# Public route checks run before and after every deploy.
+# Format: METHOD URL EXPECTED_STATUS
+# A deploy fails if any check that passed before the change fails afterwards.
+GET  https://api.mancebo.ai/health/ready          200
+POST https://api.mancebo.ai/mcp                   401
+POST https://api.mancebo.ai/course-mcp/mcp        401
+POST https://api.mancebo.ai/search-mcp/mcp        401
+GET  https://api.mancebo.ai/gentlebirth-mcp/health 200
+POST https://api.mancebo.ai/gentlebirth-mcp/mcp   401
