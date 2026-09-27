@@ -32,6 +32,32 @@ lives here. No other repository writes `/etc/caddy`.
 4. Open a PR. CI validates and format-checks with the host's Caddy version.
 5. Merge to `main`. CI probes all routes, uploads, runs `apply-caddy.sh`, probes again, and rolls back if a route that passed before now fails.
 
+## When this pipeline runs
+
+| Trigger | Why |
+|---|---|
+| Push to `main` here | A route changed |
+| `app-deployed` event from an app repo | An upstream behind Caddy was redeployed; routes are re-applied and every public URL is probed against it |
+| Manual "Run workflow" | Break-glass re-apply |
+
+App repositories that deploy a routed service to this host must end their deploy job with:
+
+```yaml
+      - name: Re-apply and verify shared Caddy routes
+        env:
+          GH_TOKEN: ${{ secrets.SHARED_CADDY_DISPATCH_TOKEN }}
+        run: curl -fsSL https://raw.githubusercontent.com/jvelezc/gentlebirth.shared.caddy/main/scripts/trigger-caddy.sh | bash
+```
+
+The step waits for the Caddy run and fails the app deploy if a route regressed. Wired up today:
+
+| Repository | Workflow | Services |
+|---|---|---|
+| `jvelezc/gentlebirth.peritanal.advisor` | `ci-cd.yml` (push to main) | `gentlebirth-mcp` :8085 |
+| `jvelezc/mancebo` | `deploy-contabo.yml` (manual) | control plane :8080, Supabase MCP :8081, Course Engineer MCP :8082 |
+
+`SHARED_CADDY_DISPATCH_TOKEN` must be able to dispatch and read runs in this repository (classic `repo` scope, or fine-grained with Actions read/write + Contents read on this repo only).
+
 ## CI/CD configuration
 
 - Repository variables: `CONTABO_HOST`, `CONTABO_SSH_USER`, `CONTABO_HOST_KEY_FINGERPRINT` (the host key is pinned; a mismatch aborts).

@@ -5,6 +5,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # App repositories send this after they deploy a service that sits behind Caddy,
+  # so routes are re-applied and every public URL is probed against the new upstream.
+  repository_dispatch:
+    types: [app-deployed]
+
+run-name: >-
+  ${{ github.event_name == 'repository_dispatch'
+      && format('Caddy after {0} deploy ({1})', github.event.client_payload.repository, github.event.client_payload.sha)
+      || github.event.head_commit.message || github.workflow }}
 
 permissions:
   contents: read
@@ -80,6 +89,10 @@ jobs:
           ssh contabo 'ls -1dt /opt/shared-caddy/releases/*/ | tail -n +6 | xargs -r rm -rf'
 
       - name: Probe public routes after the change (no regressions allowed)
+        env:
+          TRIGGER_REPO: ${{ github.event.client_payload.repository }}
+          TRIGGER_SHA: ${{ github.event.client_payload.sha }}
+          TRIGGER_RUN: ${{ github.event.client_payload.run_url }}
         run: |
           set -euo pipefail
           sleep 3
@@ -95,6 +108,9 @@ jobs:
           {
             echo '### Shared Caddy deployed'
             echo "- Revision: \`${GITHUB_SHA}\`"
+            if [[ "$GITHUB_EVENT_NAME" == repository_dispatch ]]; then
+              echo "- Triggered by: ${TRIGGER_REPO} @ \`${TRIGGER_SHA}\` (${TRIGGER_RUN})"
+            fi
             echo
             echo '| Method | URL | Status | Result |'
             echo '|---|---|---|---|'
