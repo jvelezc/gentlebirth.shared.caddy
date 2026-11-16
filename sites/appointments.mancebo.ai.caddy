@@ -1,0 +1,26 @@
+appointments.mancebo.ai {
+	encode zstd gzip
+	header -Server
+	header X-Content-Type-Options nosniff
+	header Referrer-Policy strict-origin-when-cross-origin
+
+	# API process liveness; dependency and booking checks are separate receipts.
+	handle /health/api {
+		rewrite * /health
+		reverse_proxy 127.0.0.1:8097
+	}
+
+	@native_api path /api/v2 /api/v2/*
+	handle @native_api {
+		reverse_proxy 127.0.0.1:8097 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8096
+	}
+}

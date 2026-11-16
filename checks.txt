@@ -7,3 +7,6 @@ POST https://api.mancebo.ai/course-mcp/mcp        401
 POST https://api.mancebo.ai/search-mcp/mcp        401
 GET  https://api.mancebo.ai/gentlebirth-mcp/health 200
 POST https://api.mancebo.ai/gentlebirth-mcp/mcp   401
+GET https://appointments.mancebo.ai/auth/login 200
+GET https://appointments.mancebo.ai/health/api 200
+GET https://appointments.mancebo.ai/api/v2/bookings 401

@@ -73,3 +73,18 @@ sudo systemctl reload caddy
 # Previous config from the last deploy:
 sudo rm -rf /etc/caddy && sudo cp -a /etc/caddy.previous /etc/caddy && sudo systemctl reload caddy
 ```
+
+## Existing private site overlays
+
+The live host also contains `sites/hsr-api.caddy` and `sites/hsr-canary.caddy` from
+Privensic's existing deployment. They are preserved byte-for-byte during shared
+route updates. The API overlay contains private configuration and must not be
+copied into this public repository. Installer output reports changed filenames,
+not configuration contents. Moving or retiring an overlay is a separate explicit
+migration; an application's route update cannot remove it implicitly.
+
+`appointments.mancebo.ai` is the scheduling feature: web on host loopback 8096,
+native API v2 on 8097. `/health/api` checks the API process; it does not establish
+database, calendar or email readiness. DNS must point at Contabo before public
+TLS acceptance. The Mancebo repository's `docs/SCHEDULING-OPERATIONS.md` records
+sign-in, credentials, native functional tests and remaining integration gates.

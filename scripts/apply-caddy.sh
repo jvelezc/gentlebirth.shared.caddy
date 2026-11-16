@@ -19,7 +19,8 @@ exec 9>/run/lock/shared-caddy-deploy.lock
 flock -n 9 || fail 'Another Caddy deployment is active.'
 
 echo '--- Changes against the live configuration'
-diff -ruN --exclude='*.mancebo-previous' --exclude=apply-caddy.sh "$target" "$stage" || true
+# Existing private site files can contain credentials. Report names only.
+diff -qr --exclude='*.mancebo-previous' --exclude=apply-caddy.sh "$target" "$stage" || true
 
 rm -rf "$backup"
 cp -a "$target" "$backup"
@@ -35,7 +36,8 @@ restore() {
 }
 trap restore EXIT
 
-rm -rf "$target/sites"
+# Preserve legacy private sites. Removing a hostname requires an explicit
+# migration, never a sparse checkout from a different application's release.
 install -o root -g root -m 0644 "$stage/Caddyfile" "$target/Caddyfile"
 install -d -o root -g root -m 0755 "$target/sites"
 install -o root -g root -m 0644 "$stage"/sites/*.caddy "$target/sites/"
