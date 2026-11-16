@@ -37,6 +37,8 @@ jobs:
           for f in Caddyfile sites/*.caddy; do
             podman run --rm -v "$PWD:/w:ro" "$CADDY_IMAGE" caddy fmt "/w/$f" | diff -u "$f" - || { echo "::error file=$f::Run 'caddy fmt --overwrite $f'"; exit 1; }
           done
+      - name: Verify private-site preservation and rollback in a disposable filesystem
+        run: podman run --rm -v "$PWD:/workspace:ro" docker.io/library/ubuntu:24.04 bash /workspace/scripts/test-apply-caddy.sh
 
   deploy:
     name: Deploy to Contabo
